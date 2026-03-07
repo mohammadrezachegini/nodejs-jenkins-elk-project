@@ -1,22 +1,27 @@
 /**
  * Jenkinsfile — Declarative CI/CD Pipeline
  *
- * All sensitive values stored in Jenkins Credentials — nothing hardcoded.
+ * Uses per-stage Docker agents:
+ *   - node:20-alpine  for Install + Test stages
+ *   - docker:24-cli   for Docker Build + Push stages
+ *   - alpine/git      for Git push stage
+ *
+ * No custom image needed — each stage pulls a standard public image.
  *
  * Required Jenkins Credentials:
  *   Secret text  — DOCKERHUB_REPO     e.g. youruser/nodejs-product-catalog
+ *   Secret text  — GIT_REPO_URL       e.g. https://github.com/youruser/repo.git
  *   User/pass    — dockerhub-creds    Docker Hub username + access token
  *   User/pass    — github-token       GitHub username + PAT
  */
 
 pipeline {
-    // Run directly on Jenkins agent — not inside a Docker container
-    // This avoids the "docker not found" error when Jenkins itself is in Docker
-    agent any
+    // No global agent — each stage defines its own Docker container
+    agent none
 
     environment {
         DOCKERHUB_REPO = credentials('DOCKERHUB_REPO')
-        IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        GIT_REPO_URL   = credentials('GIT_REPO_URL')
     }
 
     options {
@@ -29,7 +34,14 @@ pipeline {
     stages {
 
         // ── Stage 1: Checkout ───────────────────────────────────────────────
+        // Just prints commit info — runs in node image since it's lightweight
         stage('Checkout') {
+            agent {
+                docker {
+                    image 'node:20-alpine'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
             steps {
                 echo "==> Checking out branch: ${env.BRANCH_NAME}"
                 checkout scm
@@ -39,19 +51,26 @@ pipeline {
 
         // ── Stage 2: Install Dependencies ──────────────────────────────────
         stage('Install') {
+            agent {
+                docker { image 'node:20-alpine' }
+            }
             steps {
                 dir('app') {
                     echo '==> Installing npm dependencies'
-                    sh 'npm install'
+                    sh 'npm ci --frozen-lockfile'
                 }
             }
         }
 
         // ── Stage 3: Test ───────────────────────────────────────────────────
         stage('Test') {
+            agent {
+                docker { image 'node:20-alpine' }
+            }
             steps {
                 dir('app') {
                     echo '==> Running Jest tests'
+                    sh 'npm ci --frozen-lockfile'
                     sh 'npm test'
                 }
             }
@@ -64,13 +83,25 @@ pipeline {
         }
 
         // ── Stage 4: Docker Build ───────────────────────────────────────────
+        // docker:24-cli has Docker CLI but not Node — perfect for build/push
         stage('Docker Build') {
+            agent {
+                docker {
+                    image 'docker:24-cli'
+                    // Mount Docker socket so this container can talk to host Docker daemon
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
             steps {
+                // Capture Git SHA here since we are in the workspace
+                script {
+                    env.IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                }
+                echo "==> Building Docker image: ${DOCKERHUB_REPO}:${env.IMAGE_TAG}"
                 dir('app') {
-                    echo "==> Building Docker image"
                     sh """
                         docker build \
-                            --tag ${DOCKERHUB_REPO}:${IMAGE_TAG} \
+                            --tag ${DOCKERHUB_REPO}:${env.IMAGE_TAG} \
                             --tag ${DOCKERHUB_REPO}:latest \
                             .
                     """
@@ -80,6 +111,12 @@ pipeline {
 
         // ── Stage 5: Push to Docker Hub ─────────────────────────────────────
         stage('Push to Docker Hub') {
+            agent {
+                docker {
+                    image 'docker:24-cli'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
             steps {
                 withCredentials([
                     usernamePassword(
@@ -93,7 +130,7 @@ pipeline {
                             --username ${DH_USER} \
                             --password-stdin
 
-                        docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        docker push ${DOCKERHUB_REPO}:${env.IMAGE_TAG}
                         docker push ${DOCKERHUB_REPO}:latest
 
                         docker logout
@@ -102,23 +139,65 @@ pipeline {
             }
         }
 
+        // ── Stage 6: Update Helm values.yaml ────────────────────────────────
+        // alpine has sed built in — lightweight for file editing
+        stage('Update Helm Chart') {
+            agent {
+                docker { image 'alpine:3.19' }
+            }
+            steps {
+                dir('helm/nodejs-app') {
+                    sh """
+                        sed -i 's|tag: .*|tag: "${env.IMAGE_TAG}"|' values.yaml
+                        sed -i 's|tag: .*|tag: "${env.IMAGE_TAG}"|' values-prod.yaml
+                        echo '==> Updated image tag to: ${env.IMAGE_TAG}'
+                        grep 'tag:' values.yaml
+                    """
+                }
+            }
+        }
+
+        // ── Stage 7: Push Updated values.yaml to Git ────────────────────────
+        stage('Push to Git') {
+            when {
+                branch 'master'
+            }
+            agent {
+                docker { image 'alpine/git:latest' }
+            }
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'github-token',
+                        usernameVariable: 'GIT_USER',
+                        passwordVariable: 'GIT_TOKEN'
+                    )
+                ]) {
+                    sh """
+                        git config user.email "jenkins@ci.local"
+                        git config user.name "Jenkins CI"
+
+                        git add helm/nodejs-app/values.yaml
+                        git add helm/nodejs-app/values-prod.yaml
+
+                        git commit -m "ci: update image tag to ${env.IMAGE_TAG} [skip ci]"
+
+                        REPO_URL_NO_SCHEME=\$(echo "${GIT_REPO_URL}" | sed 's|https://||')
+                        git push https://${GIT_USER}:${GIT_TOKEN}@\${REPO_URL_NO_SCHEME} HEAD:master
+                    """
+                }
+                echo '==> ArgoCD will detect the change and sync the deployment'
+            }
+        }
+
     } // end stages
 
     post {
         success {
-            echo "✅ Pipeline SUCCESS — image pushed to Docker Hub"
+            echo "✅ Pipeline SUCCESS — Image: ${DOCKERHUB_REPO}:${env.IMAGE_TAG}"
         }
         failure {
             echo '❌ Pipeline FAILED — check the logs above'
-        }
-        always {
-            // Use withCredentials here so DOCKERHUB_REPO is available in post block
-            withCredentials([string(credentialsId: 'DOCKERHUB_REPO', variable: 'REPO')]) {
-                sh """
-                    docker rmi ${REPO}:${IMAGE_TAG} || true
-                    docker rmi ${REPO}:latest || true
-                """
-            }
         }
     }
 
