@@ -128,7 +128,7 @@ pipeline {
         // ── Stage 7: Push Updated values.yaml to Git ────────────────────────
         stage('Push to Git') {
             when {
-                branch 'main'
+                branch 'master'
             }
             steps {
                 withCredentials([
@@ -147,7 +147,7 @@ pipeline {
 
                         git commit -m "ci: update image tag to ${IMAGE_TAG} [skip ci]"
 
-                        git push https://${GIT_USER}:${GIT_TOKEN}@${GIT_REPO_URL#https://} HEAD:main
+                        git push https://${GIT_USER}:${GIT_TOKEN}@${GIT_REPO_URL#https://} HEAD:master
                     """
                 }
                 echo '==> ArgoCD will detect the change and sync the deployment'
