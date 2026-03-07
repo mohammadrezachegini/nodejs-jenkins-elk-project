@@ -1,0 +1,47 @@
+# otel-collector.yaml — OTel Collector configuration for local dev
+#
+# Pipeline:
+#   App → OTLP receiver → batch processor → Jaeger exporter
+#
+# The collector is the "router" for all telemetry data.
+# In production (K8s), the same collector also receives logs
+# and forwards them to Elasticsearch.
+
+receivers:
+  # OTLP receiver accepts both gRPC and HTTP
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Batch processor: wait until we have 512 spans OR 200ms passes
+  # before exporting. Reduces network calls to Jaeger.
+  batch:
+    send_batch_size: 512
+    timeout: 200ms
+
+  # Memory limiter: prevents OOM if the app sends too many spans
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+
+exporters:
+  # Forward traces to Jaeger via OTLP
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # Log received spans to stdout (useful for debugging)
+  logging:
+    loglevel: info
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, logging]
