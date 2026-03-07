@@ -1,31 +1,22 @@
 /**
  * Jenkinsfile — Declarative CI/CD Pipeline
  *
- * All sensitive values are stored in Jenkins Credentials — nothing
- * hardcoded in this file. This file is safe to commit to a public repo.
+ * All sensitive values stored in Jenkins Credentials — nothing hardcoded.
  *
  * Required Jenkins Credentials:
- *   Secret text     — DOCKERHUB_REPO      e.g. youruser/nodejs-product-catalog
- *   Secret text     — GIT_REPO_URL        e.g. https://github.com/youruser/repo.git
- *   User/pass       — dockerhub-creds     Docker Hub username + access token
- *   User/pass       — github-token        GitHub username + PAT
+ *   Secret text  — DOCKERHUB_REPO     e.g. youruser/nodejs-product-catalog
+ *   User/pass    — dockerhub-creds    Docker Hub username + access token
+ *   User/pass    — github-token       GitHub username + PAT
  */
 
 pipeline {
-    agent {
-        docker {
-            image 'node:20-alpine'
-            args  '-v /var/run/docker.sock:/var/run/docker.sock -u root'
-        }
-    }
+    // Run directly on Jenkins agent — not inside a Docker container
+    // This avoids the "docker not found" error when Jenkins itself is in Docker
+    agent any
 
     environment {
-        // Pull secret text values from Jenkins credential store
         DOCKERHUB_REPO = credentials('DOCKERHUB_REPO')
-        GIT_REPO_URL   = credentials('GIT_REPO_URL')
-
-        // Git SHA — used as the image tag for full traceability
-        IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
     }
 
     options {
@@ -51,7 +42,7 @@ pipeline {
             steps {
                 dir('app') {
                     echo '==> Installing npm dependencies'
-                    sh 'npm ci --frozen-lockfile'
+                    sh 'npm install'
                 }
             }
         }
@@ -61,7 +52,7 @@ pipeline {
             steps {
                 dir('app') {
                     echo '==> Running Jest tests'
-                    sh 'npm test -- --reporters=default --reporters=jest-junit'
+                    sh 'npm test'
                 }
             }
             post {
@@ -75,8 +66,8 @@ pipeline {
         // ── Stage 4: Docker Build ───────────────────────────────────────────
         stage('Docker Build') {
             steps {
-                echo "==> Building Docker image: ${DOCKERHUB_REPO}:${IMAGE_TAG}"
                 dir('app') {
+                    echo "==> Building Docker image"
                     sh """
                         docker build \
                             --tag ${DOCKERHUB_REPO}:${IMAGE_TAG} \
@@ -115,20 +106,19 @@ pipeline {
 
     post {
         success {
-            echo """
-            ✅ Pipeline SUCCESS
-            Image: ${DOCKERHUB_REPO}:${IMAGE_TAG}
-            ArgoCD will deploy this tag to the cluster.
-            """
+            echo "✅ Pipeline SUCCESS — image pushed to Docker Hub"
         }
         failure {
             echo '❌ Pipeline FAILED — check the logs above'
         }
         always {
-            sh """
-                docker rmi ${DOCKERHUB_REPO}:${IMAGE_TAG} || true
-                docker rmi ${DOCKERHUB_REPO}:latest || true
-            """
+            // Use withCredentials here so DOCKERHUB_REPO is available in post block
+            withCredentials([string(credentialsId: 'DOCKERHUB_REPO', variable: 'REPO')]) {
+                sh """
+                    docker rmi ${REPO}:${IMAGE_TAG} || true
+                    docker rmi ${REPO}:latest || true
+                """
+            }
         }
     }
 
