@@ -115,17 +115,7 @@ pipeline {
             }
         }
 
-        // ── Stage 6: Update Helm values.yaml ────────────────────────────────
-        stage('Update Helm Chart') {
-            steps {
-                sh """
-                    sed -i 's|tag: .*|tag: "${IMAGE_TAG}"|' helm/nodejs-app/values.yaml
-                    sed -i 's|tag: .*|tag: "${IMAGE_TAG}"|' helm/nodejs-app/values-prod.yaml
-                    echo '==> Updated image tag to: ${IMAGE_TAG}'
-                    grep 'tag:' helm/nodejs-app/values.yaml
-                """
-            }
-        }
+        
 
         // ── Stage 7: Push to Git ─────────────────────────────────────────────
         stage('Push to Git') {
