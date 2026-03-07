@@ -1,0 +1,41 @@
+{
+  "name": "nodejs-product-catalog",
+  "version": "1.0.0",
+  "description": "Product catalog REST API with OpenTelemetry instrumentation",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --forceExit --detectOpenHandles",
+    "test:coverage": "jest --coverage --forceExit --detectOpenHandles"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^8.0.3",
+    "dotenv": "^16.3.1",
+    "winston": "^3.11.0",
+    "morgan": "^1.10.0",
+    "helmet": "^7.1.0",
+    "express-validator": "^7.0.1",
+    "uuid": "^9.0.1",
+    "@opentelemetry/sdk-node": "^0.46.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.40.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.46.0",
+    "@opentelemetry/sdk-trace-node": "^1.19.0",
+    "@opentelemetry/api": "^1.7.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3",
+    "nodemon": "^3.0.2",
+    "mongodb-memory-server": "^9.1.6"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testTimeout": 30000,
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/tracing.js"
+    ]
+  }
+}

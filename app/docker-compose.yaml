@@ -1,0 +1,98 @@
+version: '3.9'
+
+# Local development stack — everything runs in Docker Compose:
+#   - Node.js API
+#   - MongoDB
+#   - Jaeger (traces)
+#   - OTel Collector (receives traces from app, forwards to Jaeger)
+#
+# Usage:
+#   docker compose up -d         start all services
+#   docker compose logs -f app   follow app logs
+#   docker compose down -v       stop and delete volumes
+
+services:
+
+  # ── Node.js API ────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      target: production
+    container_name: product-catalog-api
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      MONGO_URI: mongodb://mongo:27017/products
+      # Send traces to OTel Collector (not directly to Jaeger)
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: nodejs-product-catalog
+      LOG_LEVEL: info
+    depends_on:
+      mongo:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── MongoDB ────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7.0
+    container_name: product-catalog-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app-network
+
+  # ── OpenTelemetry Collector ────────────────────────────────────────────────
+  # Receives OTLP from the app, exports to Jaeger
+  # Having a collector (vs exporting directly to Jaeger) is a best practice:
+  #   - Decouples app from tracing backend
+  #   - Can fan out to multiple backends (Jaeger + Zipkin + cloud) simultaneously
+  #   - Can do sampling, batching, and tail-based sampling
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: product-catalog-otel-collector
+    command: ["--config=/etc/otelcol-contrib/otel-collector.yaml"]
+    volumes:
+      - ./config/otel-collector.yaml:/etc/otelcol-contrib/otel-collector.yaml:ro
+    ports:
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP  ← app sends here
+      - "8888:8888"    # Prometheus metrics (collector self-telemetry)
+    depends_on:
+      - jaeger
+    networks:
+      - app-network
+
+  # ── Jaeger ────────────────────────────────────────────────────────────────
+  # All-in-one image includes: agent, collector, query, UI
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: product-catalog-jaeger
+    ports:
+      - "16686:16686"   # Jaeger UI  ← open http://localhost:16686
+      - "14250:14250"   # gRPC for collector → Jaeger
+      - "14268:14268"   # HTTP for collector → Jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - app-network
+
+volumes:
+  mongo-data:
+
+networks:
+  app-network:
+    driver: bridge
