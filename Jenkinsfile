@@ -56,6 +56,8 @@ pipeline {
         }
 
         // ── Stage 3: Test ───────────────────────────────────────────────────
+        // node:20 = Debian 12 — mongodb-memory-server needs Debian, not Alpine
+        // MONGOMS_VERSION=7.0.14 — Debian 12 only supports MongoDB 7.0.3+
         stage('Test') {
             steps {
                 echo '==> Running Jest tests'
@@ -63,6 +65,7 @@ pipeline {
                     docker run --rm \
                         -v ${WORKSPACE}/app:/app \
                         -w /app \
+                        -e MONGOMS_VERSION=7.0.14 \
                         node:20 \
                         npm test
                 """
@@ -112,6 +115,17 @@ pipeline {
             }
         }
 
+        // ── Stage 6: Update Helm values.yaml ────────────────────────────────
+        stage('Update Helm Chart') {
+            steps {
+                sh """
+                    sed -i 's|tag: .*|tag: "${IMAGE_TAG}"|' helm/nodejs-app/values.yaml
+                    sed -i 's|tag: .*|tag: "${IMAGE_TAG}"|' helm/nodejs-app/values-prod.yaml
+                    echo '==> Updated image tag to: ${IMAGE_TAG}'
+                    grep 'tag:' helm/nodejs-app/values.yaml
+                """
+            }
+        }
 
         // ── Stage 7: Push to Git ─────────────────────────────────────────────
         stage('Push to Git') {
