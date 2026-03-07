@@ -111,49 +111,6 @@ pipeline {
             }
         }
 
-        // ── Stage 6: Update Helm values.yaml ────────────────────────────────
-        stage('Update Helm Chart') {
-            steps {
-                dir('helm/nodejs-app') {
-                    sh """
-                        sed -i 's|tag: .*|tag: "${IMAGE_TAG}"|' values.yaml
-                        sed -i 's|tag: .*|tag: "${IMAGE_TAG}"|' values-prod.yaml
-                        echo '==> Updated image tag to: ${IMAGE_TAG}'
-                        grep 'tag:' values.yaml
-                    """
-                }
-            }
-        }
-
-        // ── Stage 7: Push Updated values.yaml to Git ────────────────────────
-        stage('Push to Git') {
-            when {
-                branch 'master'
-            }
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'github-token',
-                        usernameVariable: 'GIT_USER',
-                        passwordVariable: 'GIT_TOKEN'
-                    )
-                ]) {
-                    sh """
-                        git config user.email "jenkins@ci.local"
-                        git config user.name "Jenkins CI"
-
-                        git add helm/nodejs-app/values.yaml
-                        git add helm/nodejs-app/values-prod.yaml
-
-                        git commit -m "ci: update image tag to ${IMAGE_TAG} [skip ci]"
-
-                        git push https://${GIT_USER}:${GIT_TOKEN}@${GIT_REPO_URL#https://} HEAD:master
-                    """
-                }
-                echo '==> ArgoCD will detect the change and sync the deployment'
-            }
-        }
-
     } // end stages
 
     post {
