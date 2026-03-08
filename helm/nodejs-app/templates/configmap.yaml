@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nodejs-app.fullname" . }}-config
+  labels:
+    {{- include "nodejs-app.labels" . | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.env.NODE_ENV | quote }}
+  LOG_LEVEL: {{ .Values.env.LOG_LEVEL | quote }}
+  PORT: {{ .Values.service.targetPort | quote }}
+  {{- if .Values.otel.enabled }}
+  OTEL_SERVICE_NAME: {{ .Values.otel.serviceName | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.collectorEndpoint | quote }}
+  {{- end }}

@@ -1,0 +1,38 @@
+# values-local.yaml — Overrides for local K3s development
+#
+# Usage:
+#   helm install nodejs-app ./helm/nodejs-app \
+#     -f helm/nodejs-app/values.yaml \
+#     -f helm/nodejs-app/values-local.yaml \
+#     --namespace default
+
+replicaCount: 1
+
+image:
+  repository: lowyiiii/nodejs-product-catalog
+  tag: "latest"
+  pullPolicy: Always  # always pull to get latest in dev
+
+ingress:
+  enabled: true
+  className: traefik  # K3s uses Traefik ingress by default
+  hosts:
+    - host: products.k3s.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+env:
+  NODE_ENV: development
+  LOG_LEVEL: debug   # verbose logging in dev
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false

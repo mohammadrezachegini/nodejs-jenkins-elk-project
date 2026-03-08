@@ -1,0 +1,21 @@
+apiVersion: v2
+name: nodejs-app
+description: Node.js Product Catalog API with OpenTelemetry instrumentation
+type: application
+
+# Chart version — bump this when you change the chart templates
+version: 0.1.0
+
+# App version — reflects the application version (separate from chart version)
+appVersion: "1.0.0"
+
+keywords:
+  - nodejs
+  - express
+  - mongodb
+  - opentelemetry
+  - rest-api
+
+maintainers:
+  - name: Reza Chegini
+    email: reza@example.com

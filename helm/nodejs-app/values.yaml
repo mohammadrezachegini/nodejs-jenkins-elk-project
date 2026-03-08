@@ -1,0 +1,115 @@
+# values.yaml — Default Helm values
+#
+# Jenkins CI updates `image.tag` after a successful build.
+# ArgoCD detects the change and syncs the new deployment.
+# Override these in values-local.yaml or values-prod.yaml.
+
+replicaCount: 2
+
+image:
+  repository: lowyiiii/nodejs-product-catalog
+  # Jenkins updates this field on every successful build
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+#imagePullSecrets:
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: products.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ── Resource limits ──────────────────────────────────────────────────────────
+# Set these to prevent a runaway pod from consuming all cluster resources.
+# Requests = what K8s guarantees. Limits = hard ceiling.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# ── Autoscaling ──────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# ── Health check probes ──────────────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+# ── Application environment variables ────────────────────────────────────────
+env:
+  NODE_ENV: production
+  PORT: "3000"
+  LOG_LEVEL: info
+
+# ── Secret references (created separately, not in Git) ────────────────────────
+# These reference K8s Secrets that exist in the cluster
+secrets:
+  mongoUriSecretName: mongodb-secret
+  mongoUriSecretKey: MONGO_URI
+
+# ── OpenTelemetry configuration ───────────────────────────────────────────────
+otel:
+  enabled: true
+  serviceName: nodejs-product-catalog
+  # Points to the OTel Collector deployed in k8s/observability/
+  collectorEndpoint: http://otel-collector:4318
+
+# ── Pod configuration ─────────────────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations:
+  prometheus.io/scrape: "false"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL

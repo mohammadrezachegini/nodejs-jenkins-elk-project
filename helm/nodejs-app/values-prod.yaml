@@ -1,0 +1,55 @@
+# values-prod.yaml — Overrides for AWS EKS production
+#
+# Usage:
+#   helm upgrade --install nodejs-app ./helm/nodejs-app \
+#     -f helm/nodejs-app/values.yaml \
+#     -f helm/nodejs-app/values-prod.yaml \
+#     --namespace production
+#
+# Jenkins updates `image.tag` here on each successful main build.
+
+replicaCount: 3
+
+image:
+  repository: lowyiiii/nodejs-product-catalog
+  # Jenkins CI updates this line:
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # cert-manager will automatically provision TLS for this host
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: products.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: products-tls
+      hosts:
+        - products.yourdomain.com
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+
+otel:
+  collectorEndpoint: http://otel-collector.observability.svc.cluster.local:4318
