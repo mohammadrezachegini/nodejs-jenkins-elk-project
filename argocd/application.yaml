@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nodejs-product-catalog
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/mohammadrezachegini/nodejs-jenkins-elk-project
+    targetRevision: master
+    path: helm/nodejs-app
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
