@@ -1,0 +1,160 @@
+# k8s/observability/logstash.yaml
+#
+# Logstash receives logs from Filebeat, parses them, and indexes to Elasticsearch.
+#
+# Log pipeline:
+#   Node.js stdout (JSON) → Filebeat DaemonSet → Logstash → Elasticsearch → Kibana
+#
+# Why Logstash instead of sending directly from Filebeat to Elasticsearch?
+#   - Logstash can parse and enrich logs (add GeoIP, parse custom formats, etc.)
+#   - Can fan out to multiple outputs
+#   - Can buffer logs during Elasticsearch downtime
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: observability
+data:
+  # Main Logstash settings
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    pipeline.workers: 2
+
+  # The pipeline: input → filter → output
+  pipeline.conf: |
+    input {
+      # Receive logs from Filebeat
+      beats {
+        port => 5044
+      }
+    }
+
+    filter {
+      # Parse the JSON log line that Winston outputs
+      # Our app always outputs JSON, so this should always succeed
+      json {
+        source => "message"
+        target => "app_log"
+      }
+
+      # If JSON parse succeeded, promote fields to top level
+      if [app_log][level] {
+        mutate {
+          add_field => {
+            "log_level"    => "%{[app_log][level]}"
+            "log_message"  => "%{[app_log][message]}"
+            "service_name" => "%{[app_log][service]}"
+            "trace_id"     => "%{[app_log][traceId]}"
+            "span_id"      => "%{[app_log][spanId]}"
+          }
+        }
+      }
+
+      # Parse the timestamp from the app log (ISO 8601)
+      date {
+        match => [ "[app_log][timestamp]", "ISO8601" ]
+        target => "@timestamp"
+      }
+
+      # Add Kubernetes metadata from Filebeat
+      # (Filebeat auto-adds: kubernetes.pod.name, kubernetes.namespace, etc.)
+      if [kubernetes] {
+        mutate {
+          add_field => {
+            "k8s_pod"       => "%{[kubernetes][pod][name]}"
+            "k8s_namespace" => "%{[kubernetes][namespace]}"
+            "k8s_node"      => "%{[kubernetes][node][name]}"
+          }
+        }
+      }
+
+      # Remove raw message field (we already parsed it)
+      mutate {
+        remove_field => ["message", "agent", "ecs", "input", "log"]
+      }
+    }
+
+    output {
+      elasticsearch {
+        hosts => ["elasticsearch:9200"]
+        # One index per day — makes it easy to delete old logs
+        index => "nodejs-logs-%{+YYYY.MM.dd}"
+        # Use the trace_id as doc id to deduplicate if Filebeat retries
+        document_id => "%{[app_log][traceId]}-%{@timestamp}"
+      }
+      # Debug: also print to stdout (remove in production)
+      stdout {
+        codec => rubydebug
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: observability
+  labels:
+    app: logstash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:8.11.1
+          ports:
+            - containerPort: 5044  # Beats input
+              name: beats
+          env:
+            - name: LS_JAVA_OPTS
+              value: "-Xms256m -Xmx512m"
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/logstash/config/logstash.yml
+              subPath: logstash.yml
+            - name: config
+              mountPath: /usr/share/logstash/pipeline/pipeline.conf
+              subPath: pipeline.conf
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9600
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: logstash-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: observability
+  labels:
+    app: logstash
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5044
+      targetPort: 5044
+      name: beats
+  selector:
+    app: logstash

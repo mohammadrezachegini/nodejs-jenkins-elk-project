@@ -1,0 +1,108 @@
+# k8s/observability/jaeger.yaml
+#
+# Jaeger — distributed tracing UI and backend.
+# Using the all-in-one image for simplicity on K3s.
+#
+# Access Jaeger UI:
+#   kubectl port-forward svc/jaeger-query -n observability 16686:16686
+#   Open: http://localhost:16686
+#
+# In Jaeger UI you can:
+#   - Search traces by service name, operation, tags, duration
+#   - See the full trace waterfall for a single request
+#   - Compare traces to find performance regressions
+#   - Link from Kibana (using traceId) directly to a trace
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: observability
+  labels:
+    app: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.52
+          ports:
+            - containerPort: 16686   # Jaeger UI
+            - containerPort: 4317    # OTLP gRPC
+            - containerPort: 4318    # OTLP HTTP
+            - containerPort: 14268   # HTTP collector
+            - containerPort: 14250   # gRPC collector
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+            # In-memory storage — traces lost on pod restart
+            # For persistence, use Jaeger with Elasticsearch backend
+            - name: SPAN_STORAGE_TYPE
+              value: "memory"
+            - name: MEMORY_MAX_TRACES
+              value: "50000"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 16686
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+# Two services: one for the UI (jaeger-query), one for the collector
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query
+  namespace: observability
+  labels:
+    app: jaeger
+spec:
+  type: ClusterIP
+  ports:
+    - port: 16686
+      targetPort: 16686
+      name: http-ui
+  selector:
+    app: jaeger
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: observability
+  labels:
+    app: jaeger
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4317
+      targetPort: 4317
+      name: otlp-grpc
+    - port: 4318
+      targetPort: 4318
+      name: otlp-http
+    - port: 14268
+      targetPort: 14268
+      name: http
+    - port: 14250
+      targetPort: 14250
+      name: grpc
+  selector:
+    app: jaeger
