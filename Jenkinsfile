@@ -159,7 +159,7 @@ pipeline {
                         git diff --staged --quiet || git commit -m "ci: update image tag to ${IMAGE_TAG} [skip ci]"
 
                         REPO_URL_NO_SCHEME=\$(echo "${GIT_REPO_URL}" | sed 's|https://||')
-                        git push https://${GIT_USER}:${GIT_TOKEN}@\${REPO_URL_NO_SCHEME} HEAD:main
+                        git push https://${GIT_USER}:${GIT_TOKEN}@\${REPO_URL_NO_SCHEME} HEAD:master
                     """
                 }
                 echo '==> Git updated — triggering ArgoCD sync now'
