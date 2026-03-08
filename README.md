@@ -120,7 +120,7 @@ Stage 7  Push to Git      git commit + push [skip ci]
 Stage 8  Deploy ArgoCD    POST /api/v1/applications/.../sync → poll until Healthy
 ```
 
-Jenkins build turns green only when the pod is **actually Running and Healthy** in K8s — not just when the image was pushed.
+Jenkins build turns green only when the pod is **actually Running and Healthy** in K8s, not just when the image was pushed.
 
 ### Jenkins Credentials Required
 
@@ -239,7 +239,7 @@ kubectl port-forward svc/kibana 5601:5601 -n observability --address 0.0.0.0
 # Create data view: nodejs-logs-* with @timestamp field
 ```
 
-Every log line includes a `traceId` field — you can copy a traceId from Kibana and paste it into Jaeger to see the exact trace for that request.
+Every log line includes a `traceId` field, you can copy a traceId from Kibana and paste it into Jaeger to see the exact trace for that request.
 
 ## Real Bugs Fixed During This Project
 
@@ -256,10 +256,10 @@ Version mismatch between `@opentelemetry/resources` and the version bundled insi
 OTel MongoDB instrumentation conflicts with mongoose's bundled mongodb driver (different versions nested at `node_modules/mongoose/node_modules/mongodb`). Fixed by disabling MongoDB instrumentation in tracing.js.
 
 **Bug 5 — mongodb-memory-server fails on Alpine Linux**
-`UnknownLinuxDistro: Unknown/unsupported linux "alpine"`. mongodb-memory-server downloads a real MongoDB binary at test time — Alpine is not supported. Fixed by using `node:20` (Debian) for the test stage and setting `MONGOMS_VERSION=7.0.14` since Debian 12 requires MongoDB 7.0.3+.
+`UnknownLinuxDistro: Unknown/unsupported linux "alpine"`. mongodb-memory-server downloads a real MongoDB binary at test time, Alpine is not supported. Fixed by using `node:20` (Debian) for the test stage and setting `MONGOMS_VERSION=7.0.14` since Debian 12 requires MongoDB 7.0.3+.
 
 **Bug 6 — Groovy syntax error `unexpected char: '#'`**
-`${GIT_REPO_URL#https://}` is bash parameter substitution syntax — Groovy parser crashes on the `#` character before the shell even runs. Fixed by stripping the prefix at runtime using `sed 's|https://||'` inside the shell block.
+`${GIT_REPO_URL#https://}` is bash parameter substitution syntax, Groovy parser crashes on the `#` character before the shell even runs. Fixed by stripping the prefix at runtime using `sed 's|https://||'` inside the shell block.
 
 **Bug 7 — Jenkins `when { branch 'master' }` always skips**
 `branch 'master'` only works in Multibranch Pipeline jobs. Regular Pipeline jobs use `env.GIT_BRANCH` which is set to `origin/master`. Fixed by replacing with `expression { return env.GIT_BRANCH == 'origin/master' || env.GIT_BRANCH == 'master' }`.
