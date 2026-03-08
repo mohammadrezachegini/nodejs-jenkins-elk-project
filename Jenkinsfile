@@ -4,11 +4,13 @@
  * agent any — runs on Jenkins host (Ubuntu)
  * npm stages run inside Docker containers via docker run
  * docker build/push run directly on host
- * Helm values.yaml updated after push — triggers ArgoCD
+ * Stage 8 triggers ArgoCD sync and waits for deployment to complete
  *
  * Required Jenkins Credentials:
  *   Secret text  — DOCKERHUB_REPO     e.g. youruser/nodejs-product-catalog
  *   Secret text  — GIT_REPO_URL       e.g. https://github.com/youruser/repo.git
+ *   Secret text  — ARGOCD_TOKEN       ArgoCD admin token
+ *   Secret text  — ARGOCD_SERVER      e.g. localhost:8090
  *   User/pass    — dockerhub-creds    Docker Hub username + access token
  *   User/pass    — github-token       GitHub username + PAT
  */
@@ -19,6 +21,8 @@ pipeline {
     environment {
         DOCKERHUB_REPO = credentials('DOCKERHUB_REPO')
         GIT_REPO_URL   = credentials('GIT_REPO_URL')
+        ARGOCD_TOKEN   = credentials('ARGOCD_TOKEN')
+        ARGOCD_SERVER  = credentials('ARGOCD_SERVER')
         IMAGE_TAG      = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
     }
 
@@ -156,7 +160,62 @@ pipeline {
                         git push https://${GIT_USER}:${GIT_TOKEN}@\${REPO_URL_NO_SCHEME} HEAD:master
                     """
                 }
-                echo '==> ArgoCD will detect the change and sync the deployment'
+                echo '==> Git updated — triggering ArgoCD sync now'
+            }
+        }
+
+        // ── Stage 8: Trigger ArgoCD Sync ────────────────────────────────────
+        // Triggers immediate ArgoCD sync instead of waiting for 3min poll
+        // Then polls ArgoCD every 5 seconds until deployment succeeds or fails
+        // Jenkins build only turns green when the pod is actually Running in K8s
+        stage('Deploy via ArgoCD') {
+            when {
+                branch 'master'
+            }
+            steps {
+                sh """
+                    echo "==> Triggering ArgoCD sync"
+
+                    # Trigger sync via ArgoCD API
+                    curl -s -k -X POST \
+                        -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+                        -H "Content-Type: application/json" \
+                        https://${ARGOCD_SERVER}/api/v1/applications/nodejs-product-catalog/sync \
+                        -d '{"prune": true}'
+
+                    echo ""
+                    echo "==> Waiting for deployment to complete..."
+
+                    # Poll every 5 seconds for up to 2 minutes (24 attempts)
+                    for i in \$(seq 1 24); do
+                        STATUS=\$(curl -s -k \
+                            -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+                            https://${ARGOCD_SERVER}/api/v1/applications/nodejs-product-catalog \
+                            | grep -o '"phase":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+                        HEALTH=\$(curl -s -k \
+                            -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+                            https://${ARGOCD_SERVER}/api/v1/applications/nodejs-product-catalog \
+                            | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+                        echo "==> Attempt \$i/24 — Sync: \$STATUS | Health: \$HEALTH"
+
+                        if [ "\$STATUS" = "Succeeded" ] && [ "\$HEALTH" = "Healthy" ]; then
+                            echo "✅ Deployment complete — app is healthy"
+                            exit 0
+                        fi
+
+                        if [ "\$STATUS" = "Failed" ] || [ "\$STATUS" = "Error" ]; then
+                            echo "❌ Deployment failed — check ArgoCD UI"
+                            exit 1
+                        fi
+
+                        sleep 5
+                    done
+
+                    echo "⚠️ Sync timed out after 120s — check ArgoCD UI"
+                    exit 1
+                """
             }
         }
 
@@ -164,7 +223,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ Pipeline SUCCESS — ${DOCKERHUB_REPO}:${IMAGE_TAG}"
+            echo "✅ Pipeline SUCCESS — ${DOCKERHUB_REPO}:${IMAGE_TAG} is live in K8s"
         }
         failure {
             echo '❌ Pipeline FAILED — check the logs above'
