@@ -2,8 +2,9 @@
  * Jenkinsfile — Declarative CI/CD Pipeline
  *
  * agent any — runs on Jenkins host (Ubuntu)
- * npm stages run inside node:20-alpine container via docker run
+ * npm stages run inside Docker containers via docker run
  * docker build/push run directly on host
+ * Helm values.yaml updated after push — triggers ArgoCD
  *
  * Required Jenkins Credentials:
  *   Secret text  — DOCKERHUB_REPO     e.g. youruser/nodejs-product-catalog
@@ -31,7 +32,6 @@ pipeline {
     stages {
 
         // ── Stage 1: Checkout ───────────────────────────────────────────────
-        // Runs on host — git is available on Ubuntu Jenkins
         stage('Checkout') {
             steps {
                 echo "==> Commit: ${env.IMAGE_TAG}"
@@ -40,8 +40,7 @@ pipeline {
         }
 
         // ── Stage 2: Install ────────────────────────────────────────────────
-        // docker run mounts workspace into node:20-alpine container
-        // --rm removes container after command finishes
+        // node:20-alpine — lightweight, only needs npm ci (no mongo needed)
         stage('Install') {
             steps {
                 echo '==> Installing npm dependencies'
@@ -56,8 +55,8 @@ pipeline {
         }
 
         // ── Stage 3: Test ───────────────────────────────────────────────────
-        // node:20 = Debian 12 — mongodb-memory-server needs Debian, not Alpine
-        // MONGOMS_VERSION=7.0.14 — Debian 12 only supports MongoDB 7.0.3+
+        // node:20 (Debian) — mongodb-memory-server does not support Alpine
+        // MONGOMS_VERSION=7.0.14 — Debian 12 requires MongoDB 7.0.3+
         stage('Test') {
             steps {
                 echo '==> Running Jest tests'
@@ -115,9 +114,23 @@ pipeline {
             }
         }
 
-        
+        // ── Stage 6: Update Helm values.yaml ────────────────────────────────
+        // Updates image tag in values.yaml — ArgoCD detects this change
+        // and automatically deploys the new image to K8s
+        stage('Update Helm Chart') {
+            steps {
+                sh """
+                    sed -i 's|tag: .*|tag: "${IMAGE_TAG}"|' helm/nodejs-app/values.yaml
+                    sed -i 's|tag: .*|tag: "${IMAGE_TAG}"|' helm/nodejs-app/values-prod.yaml
+                    echo '==> Updated image tag to: ${IMAGE_TAG}'
+                    grep 'tag:' helm/nodejs-app/values.yaml
+                """
+            }
+        }
 
-        // ── Stage 7: Push to Git ─────────────────────────────────────────────
+        // ── Stage 7: Push updated values.yaml to Git ────────────────────────
+        // ArgoCD watches this file — when tag changes, ArgoCD syncs the cluster
+        // [skip ci] prevents Jenkins from re-triggering on this commit
         stage('Push to Git') {
             when {
                 branch 'master'
