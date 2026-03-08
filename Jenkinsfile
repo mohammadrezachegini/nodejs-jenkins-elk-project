@@ -137,7 +137,9 @@ pipeline {
         // [skip ci] prevents Jenkins from re-triggering on this commit
         stage('Push to Git') {
             when {
-                branch 'master'
+                expression {
+                    return env.GIT_BRANCH == 'origin/master' || env.GIT_BRANCH == 'master'
+                }
             }
             steps {
                 withCredentials([
@@ -157,7 +159,7 @@ pipeline {
                         git diff --staged --quiet || git commit -m "ci: update image tag to ${IMAGE_TAG} [skip ci]"
 
                         REPO_URL_NO_SCHEME=\$(echo "${GIT_REPO_URL}" | sed 's|https://||')
-                        git push https://${GIT_USER}:${GIT_TOKEN}@\${REPO_URL_NO_SCHEME} HEAD:master
+                        git push https://${GIT_USER}:${GIT_TOKEN}@\${REPO_URL_NO_SCHEME} HEAD:main
                     """
                 }
                 echo '==> Git updated — triggering ArgoCD sync now'
@@ -170,7 +172,9 @@ pipeline {
         // Jenkins build only turns green when the pod is actually Running in K8s
         stage('Deploy via ArgoCD') {
             when {
-                branch 'master'
+                expression {
+                    return env.GIT_BRANCH == 'origin/master' || env.GIT_BRANCH == 'master'
+                }
             }
             steps {
                 sh """
