@@ -9,7 +9,7 @@ replicaCount: 2
 image:
   repository: lowyiiii/nodejs-product-catalog
   # Jenkins updates this field on every successful build
-  tag: "latest"
+  tag: "e4a5c68"
   pullPolicy: IfNotPresent
 
 #imagePullSecrets:

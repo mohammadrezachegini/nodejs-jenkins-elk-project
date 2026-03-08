@@ -13,7 +13,7 @@ replicaCount: 3
 image:
   repository: lowyiiii/nodejs-product-catalog
   # Jenkins CI updates this line:
-  tag: "latest"
+  tag: "e4a5c68"
   pullPolicy: IfNotPresent
 
 ingress:
