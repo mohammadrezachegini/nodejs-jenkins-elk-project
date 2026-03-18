@@ -89,10 +89,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 100Mi
+              memory: 150Mi
             limits:
               cpu: 200m
-              memory: 200Mi
+              memory: 350Mi
           volumeMounts:
             - name: config
               mountPath: /etc/filebeat.yml

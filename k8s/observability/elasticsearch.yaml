@@ -3,8 +3,7 @@
 # Single-node Elasticsearch for the ELK stack on K3s.
 # For production EKS: use ECK (Elastic Cloud on Kubernetes) operator instead.
 #
-# This is a lightweight setup suitable for a home lab.
-# Single node = no high availability, but much less resource usage.
+# Memory optimized for home lab use.
 
 ---
 apiVersion: v1
@@ -27,6 +26,9 @@ data:
     # Disable security for local dev (enable for production!)
     xpack.security.enabled: false
     xpack.monitoring.collection.enabled: false
+    # Reduce memory usage for index buffer and query cache
+    indices.memory.index_buffer_size: 10%
+    indices.queries.cache.size: 5%
 
 ---
 apiVersion: apps/v1
@@ -64,7 +66,7 @@ spec:
               name: transport
           env:
             - name: ES_JAVA_OPTS
-              value: "-Xms512m -Xmx512m"  # limit heap — important for K3s
+              value: "-Xms256m -Xmx256m"  # reduced from 512m — safe for home lab
           volumeMounts:
             - name: config
               mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
@@ -73,11 +75,11 @@ spec:
               mountPath: /usr/share/elasticsearch/data
           resources:
             requests:
-              cpu: 200m
-              memory: 1Gi
+              cpu: 100m       # reduced from 200m
+              memory: 512Mi   # reduced from 1Gi
             limits:
-              cpu: 1000m
-              memory: 2Gi
+              cpu: 500m       # reduced from 1000m
+              memory: 768Mi   # reduced from 2Gi
           readinessProbe:
             httpGet:
               path: /_cluster/health

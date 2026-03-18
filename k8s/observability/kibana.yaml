@@ -3,11 +3,11 @@
 # Kibana — the web UI for searching and visualizing logs in Elasticsearch.
 #
 # After deployment, access Kibana:
-#   kubectl port-forward svc/kibana -n observability 5601:5601
-#   Open: http://localhost:5601
+#   kubectl port-forward svc/kibana -n observability 5601:5601 --address 0.0.0.0
+#   Open: http://10.0.0.148:5601
 #
 # First-time setup in Kibana:
-#   1. Go to Stack Management → Index Patterns
+#   1. Go to Stack Management → Data Views
 #   2. Create pattern: nodejs-logs-*
 #   3. Set Time field: @timestamp
 #   4. Go to Discover → search your logs
@@ -44,13 +44,16 @@ spec:
             # Disable telemetry
             - name: TELEMETRY_ENABLED
               value: "false"
+            # Reduce Node.js memory usage
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=400"
           resources:
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 100m       # reduced from 200m
+              memory: 512Mi   # reduced from 512Mi
             limits:
-              cpu: 500m
-              memory: 1Gi
+              cpu: 500m       # reduced from 500m
+              memory: 1Gi   # reduced from 1Gi
           readinessProbe:
             httpGet:
               path: /api/status
